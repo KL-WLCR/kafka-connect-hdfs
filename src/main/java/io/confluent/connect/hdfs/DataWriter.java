@@ -57,7 +57,7 @@ import io.confluent.connect.hdfs.storage.StorageFactory;
 public class DataWriter {
   private static final Logger log = LoggerFactory.getLogger(DataWriter.class);
 
-  private Map<TopicPartition, TopicPartitionWriter> topicPartitionWriters;
+  private final Map<TopicPartition, TopicPartitionWriter> topicPartitionWriters;
   private String url;
   private Storage storage;
   private Configuration conf;
@@ -291,13 +291,18 @@ public class DataWriter {
     // data may have continued to be processed and we'd have to restart from the recovery stage,
     // make sure we apply the WAL, and only reuse the temp file if the starting offset is still
     // valid. For now, we prefer the simpler solution that may result in a bit of wasted effort.
-    for (TopicPartition tp: assignment) {
-      try {
-        topicPartitionWriters.get(tp).close();
-      } catch (ConnectException e) {
-        log.error("Error closing writer for {}. Error: {]", tp, e.getMessage());
-      } finally {
-        topicPartitionWriters.remove(tp);
+    synchronized (topicPartitionWriters) {
+      for (TopicPartition tp : assignment) {
+        try {
+          TopicPartitionWriter topicWriter = topicPartitionWriters.get(tp);
+          if (topicWriter != null) {
+            topicWriter.close();
+          }
+        } catch (ConnectException e) {
+          log.error("Error closing writer for {}. Error: {}", tp, e.getMessage());
+        } finally {
+          topicPartitionWriters.remove(tp);
+        }
       }
     }
   }
